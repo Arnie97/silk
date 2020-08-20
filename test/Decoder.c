@@ -1,27 +1,27 @@
 /***********************************************************************
-Copyright (c) 2006-2012, Skype Limited. All rights reserved. 
-Redistribution and use in source and binary forms, with or without 
-modification, (subject to the limitations in the disclaimer below) 
+Copyright (c) 2006-2012, Skype Limited. All rights reserved.
+Redistribution and use in source and binary forms, with or without
+modification, (subject to the limitations in the disclaimer below)
 are permitted provided that the following conditions are met:
 - Redistributions of source code must retain the above copyright notice,
 this list of conditions and the following disclaimer.
-- Redistributions in binary form must reproduce the above copyright 
-notice, this list of conditions and the following disclaimer in the 
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
 documentation and/or other materials provided with the distribution.
-- Neither the name of Skype Limited, nor the names of specific 
-contributors, may be used to endorse or promote products derived from 
+- Neither the name of Skype Limited, nor the names of specific
+contributors, may be used to endorse or promote products derived from
 this software without specific prior written permission.
-NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED 
-BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND 
+NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED
+BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
 CONTRIBUTORS ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
-BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND 
-FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE 
-COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, 
+BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
 INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF 
-USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON 
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
@@ -68,7 +68,7 @@ void swap_endian(
 }
 #endif
 
-#if (defined(_WIN32) || defined(_WINCE)) 
+#if (defined(_WIN32) || defined(_WINCE))
 #include <windows.h>	/* timer */
 #else    // Linux or Mac
 #include <sys/time.h>
@@ -136,7 +136,7 @@ int main( int argc, char* argv[] )
     if( argc < 3 ) {
         print_usage( argv );
         exit( 0 );
-    } 
+    }
 
     /* default settings */
     quiet     = 0;
@@ -177,14 +177,14 @@ int main( int argc, char* argv[] )
     if( bitInFile == NULL ) {
         printf( "Error: could not open input file %s\n", bitInFileName );
         exit( 0 );
-    } 
+    }
 
     /* Check Silk header */
     {
         char header_buf[ 50 ];
         counter = fread( header_buf, sizeof( char ), strlen( "#!SILK_V3" ), bitInFile );
         header_buf[ strlen( "#!SILK_V3" ) ] = '\0'; /* Terminate with a null character */
-        if( strcmp( header_buf, "#!SILK_V3" ) != 0 ) { 
+        if( strcmp( header_buf, "#!SILK_V3" ) != 0 ) {
             /* Non-equal strings */
             printf( "Error: Wrong Header %s\n", header_buf );
             exit( 0 );
@@ -251,201 +251,20 @@ int main( int argc, char* argv[] )
         if( nBytes < 0 || counter < 1 ) {
             break;
         }
-        
+
         /* Read payload */
         counter = fread( payloadEnd, sizeof( SKP_uint8 ), nBytes, bitInFile );
         if( ( SKP_int16 )counter < nBytes ) {
             break;
         }
-
-        /* Simulate losses */
-        rand_seed = SKP_RAND( rand_seed );
-        if( ( ( ( float )( ( rand_seed >> 16 ) + ( 1 << 15 ) ) ) / 65535.0f >= ( loss_prob / 100.0f ) ) && ( counter > 0 ) ) {
-            nBytesPerPacket[ MAX_LBRR_DELAY ] = nBytes;
-            payloadEnd                       += nBytes;
-        } else {
-            nBytesPerPacket[ MAX_LBRR_DELAY ] = 0;
-        }
-
-        if( nBytesPerPacket[ 0 ] == 0 ) {
-            /* Indicate lost packet */
-            lost = 1;
-
-            /* Packet loss. Search after FEC in next packets. Should be done in the jitter buffer */
-            payloadPtr = payload;
-            for( i = 0; i < MAX_LBRR_DELAY; i++ ) {
-                if( nBytesPerPacket[ i + 1 ] > 0 ) {
-                    starttime = GetHighResolutionTime();
-                    SKP_Silk_SDK_search_for_LBRR( payloadPtr, nBytesPerPacket[ i + 1 ], ( i + 1 ), FECpayload, &nBytesFEC );
-                    tottime += GetHighResolutionTime() - starttime;
-                    if( nBytesFEC > 0 ) {
-                        payloadToDec = FECpayload;
-                        nBytes = nBytesFEC;
-                        lost = 0;
-                        break;
-                    }
-                }
-                payloadPtr += nBytesPerPacket[ i + 1 ];
-            }
-        } else {
-            lost = 0;
-            nBytes = nBytesPerPacket[ 0 ];
-            payloadToDec = payload;
-        }
-
-        /* Silk decoder */
-        outPtr = out;
-        tot_len = 0;
-        starttime = GetHighResolutionTime();
-
-        if( lost == 0 ) {
-            /* No Loss: Decode all frames in the packet */
-            frames = 0;
-            do {
-                /* Decode 20 ms */
-                ret = SKP_Silk_SDK_Decode( psDec, &DecControl, 0, payloadToDec, nBytes, outPtr, &len );
-                if( ret ) {
-                    printf( "\nSKP_Silk_SDK_Decode returned %d", ret );
-                }
-
-                frames++;
-                outPtr  += len;
-                tot_len += len;
-                if( frames > MAX_INPUT_FRAMES ) {
-                    /* Hack for corrupt stream that could generate too many frames */
-                    outPtr  = out;
-                    tot_len = 0;
-                    frames  = 0;
-                }
-                /* Until last 20 ms frame of packet has been decoded */
-            } while( DecControl.moreInternalDecoderFrames ); 
-        } else {    
-            /* Loss: Decode enough frames to cover one packet duration */
-            for( i = 0; i < DecControl.framesPerPacket; i++ ) {
-                /* Generate 20 ms */
-                ret = SKP_Silk_SDK_Decode( psDec, &DecControl, 1, payloadToDec, nBytes, outPtr, &len );
-                if( ret ) {
-                    printf( "\nSKP_Silk_Decode returned %d", ret );
-                }
-                outPtr  += len;
-                tot_len += len;
-            }
-        }
-
-        packetSize_ms = tot_len / ( DecControl.API_sampleRate / 1000 );
-        tottime += GetHighResolutionTime() - starttime;
-        totPackets++;
-
-        /* Write output to file */
-#ifdef _SYSTEM_IS_BIG_ENDIAN   
-        swap_endian( out, tot_len );
-#endif
-        fwrite( out, sizeof( SKP_int16 ), tot_len, speechOutFile );
-
-        /* Update buffer */
-        totBytes = 0;
-        for( i = 0; i < MAX_LBRR_DELAY; i++ ) {
-            totBytes += nBytesPerPacket[ i + 1 ];
-        }
-        SKP_memmove( payload, &payload[ nBytesPerPacket[ 0 ] ], totBytes * sizeof( SKP_uint8 ) );
-        payloadEnd -= nBytesPerPacket[ 0 ];
-        SKP_memmove( nBytesPerPacket, &nBytesPerPacket[ 1 ], MAX_LBRR_DELAY * sizeof( SKP_int16 ) );
-
-        if( !quiet ) {
-            fprintf( stderr, "\rPackets decoded:             %d", totPackets );
-        }
+        nBytesPerPacket[ MAX_LBRR_DELAY ] = nBytes;
+        payloadEnd                       += nBytes;
+        #include "270.c"
     }
 
     /* Empty the recieve buffer */
     for( k = 0; k < MAX_LBRR_DELAY; k++ ) {
-        if( nBytesPerPacket[ 0 ] == 0 ) {
-            /* Indicate lost packet */
-            lost = 1;
-
-            /* Packet loss. Search after FEC in next packets. Should be done in the jitter buffer */
-            payloadPtr = payload;
-            for( i = 0; i < MAX_LBRR_DELAY; i++ ) {
-                if( nBytesPerPacket[ i + 1 ] > 0 ) {
-                    starttime = GetHighResolutionTime();
-                    SKP_Silk_SDK_search_for_LBRR( payloadPtr, nBytesPerPacket[ i + 1 ], ( i + 1 ), FECpayload, &nBytesFEC );
-                    tottime += GetHighResolutionTime() - starttime;
-                    if( nBytesFEC > 0 ) {
-                        payloadToDec = FECpayload;
-                        nBytes = nBytesFEC;
-                        lost = 0;
-                        break;
-                    }
-                }
-                payloadPtr += nBytesPerPacket[ i + 1 ];
-            }
-        } else {
-            lost = 0;
-            nBytes = nBytesPerPacket[ 0 ];
-            payloadToDec = payload;
-        }
-
-        /* Silk decoder */
-        outPtr  = out;
-        tot_len = 0;
-        starttime = GetHighResolutionTime();
-
-        if( lost == 0 ) {
-            /* No loss: Decode all frames in the packet */
-            frames = 0;
-            do {
-                /* Decode 20 ms */
-                ret = SKP_Silk_SDK_Decode( psDec, &DecControl, 0, payloadToDec, nBytes, outPtr, &len );
-                if( ret ) {
-                    printf( "\nSKP_Silk_SDK_Decode returned %d", ret );
-                }
-
-                frames++;
-                outPtr  += len;
-                tot_len += len;
-                if( frames > MAX_INPUT_FRAMES ) {
-                    /* Hack for corrupt stream that could generate too many frames */
-                    outPtr  = out;
-                    tot_len = 0;
-                    frames  = 0;
-                }
-            /* Until last 20 ms frame of packet has been decoded */
-            } while( DecControl.moreInternalDecoderFrames );
-        } else {    
-            /* Loss: Decode enough frames to cover one packet duration */
-
-            /* Generate 20 ms */
-            for( i = 0; i < DecControl.framesPerPacket; i++ ) {
-                ret = SKP_Silk_SDK_Decode( psDec, &DecControl, 1, payloadToDec, nBytes, outPtr, &len );
-                if( ret ) {
-                    printf( "\nSKP_Silk_Decode returned %d", ret );
-                }
-                outPtr  += len;
-                tot_len += len;
-            }
-        }
-
-        packetSize_ms = tot_len / ( DecControl.API_sampleRate / 1000 );
-        tottime += GetHighResolutionTime() - starttime;
-        totPackets++;
-
-        /* Write output to file */
-#ifdef _SYSTEM_IS_BIG_ENDIAN   
-        swap_endian( out, tot_len );
-#endif
-        fwrite( out, sizeof( SKP_int16 ), tot_len, speechOutFile );
-
-        /* Update Buffer */
-        totBytes = 0;
-        for( i = 0; i < MAX_LBRR_DELAY; i++ ) {
-            totBytes += nBytesPerPacket[ i + 1 ];
-        }
-        SKP_memmove( payload, &payload[ nBytesPerPacket[ 0 ] ], totBytes * sizeof( SKP_uint8 ) );
-        payloadEnd -= nBytesPerPacket[ 0 ];
-        SKP_memmove( nBytesPerPacket, &nBytesPerPacket[ 1 ], MAX_LBRR_DELAY * sizeof( SKP_int16 ) );
-
-        if( !quiet ) {
-            fprintf( stderr, "\rPackets decoded:              %d", totPackets );
-        }
+        #include "270.c"
     }
 
     if( !quiet ) {
