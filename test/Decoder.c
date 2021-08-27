@@ -96,9 +96,6 @@ unsigned long GetHighResolutionTime() /* O: time in usec*/
 }
 #endif // _WIN32
 
-/* Seed for the random number generator, which is used for simulating packet loss */
-static SKP_int32 rand_seed = 1;
-
 static void print_usage(char* argv[]) {
     printf( "\nusage: %s in.bit out.pcm [settings]\n", argv[ 0 ] );
     printf( "\nin.bit       : Bitstream input to decoder" );
@@ -181,10 +178,11 @@ int main( int argc, char* argv[] )
 
     /* Check Silk header */
     {
-        char header_buf[ 50 ];
-        counter = fread( header_buf, sizeof( char ), strlen( "#!SILK_V3" ), bitInFile );
-        header_buf[ strlen( "#!SILK_V3" ) ] = '\0'; /* Terminate with a null character */
-        if( strcmp( header_buf, "#!SILK_V3" ) != 0 ) {
+        char header_buf[ 15 ];
+        const char *header = "\2#!SILK_V3";
+        counter = fread( header_buf, sizeof( char ), strlen( header ), bitInFile );
+        header_buf[ strlen( header ) ] = '\0'; /* Terminate with a null character */
+        if( strcmp( header_buf, header ) != 0 ) {
             /* Non-equal strings */
             printf( "Error: Wrong Header %s\n", header_buf );
             exit( 0 );
